@@ -1,2 +1,2 @@
 # aes_cuda
-AES implementation on CUDA
+Simple AES-128 encryption/decryption implementation on CUDA.
