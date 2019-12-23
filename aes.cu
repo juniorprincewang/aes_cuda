@@ -1,9 +1,9 @@
 #include "aes.h"
 
+const char *file_path = "plaintext.txt";
 
 //generate round keys from initial key
 void expand_key(uint8_t *key, uint8_t *rkey){
-  
   uint32_t i,j,k;
   uint8_t tempa[4];
   uint32_t nround = 10;
@@ -217,7 +217,7 @@ __global__ void encrypt_one_block(uint8_t *block, uint8_t *rkey, uint32_t numblo
 	int bindex = blockIdx.x * blockDim.x + threadIdx.x;
 	int offset = bindex * 16;
 	if(bindex >= numblock) return;
-	printf("bindex = %d\n", bindex);
+	// printf("bindex = %d\n", bindex);
 	encrypt(block, rkey, offset);
 }
 
@@ -246,7 +246,7 @@ __global__ void decrypt_one_block(uint8_t *block, uint8_t *rkey, uint32_t numblo
 	int bindex = blockIdx.x * blockDim.x + threadIdx.x;
 	int offset = bindex * 16;
 	if(bindex >= numblock) return;
-	printf("bindex = %d\n", bindex);
+	// printf("bindex = %d\n", bindex);
 	decrypt(block, rkey, offset);
 }
 
@@ -314,25 +314,55 @@ void print_block_hex(const uint8_t *text)
 	printf("\n");
 }
 
-int main()
+void write_file(char *file)
 {
-	/*
-	uint8_t key[16] = {0x7E, 0x24, 0x06, 0x78, 0x17, 0xFA, 0xE0, 0xD7, 0x43, 0xD6, 0xCE, 0x1F, 0x32, 0x53, 0x91, 0x63};
-	uint8_t rseed[16] = {0x00, 0x6C, 0xB6, 0xDB, 0xC0, 0x54, 0x3B, 0x59, 0xDA, 0x48, 0xD9, 0x0B, 0, 0, 0, 0};
-	uint8_t plaintext[33] = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F";
-	long int size = 32;
-	*/
+	uint8_t plaintext[] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee ,0xff
+		, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee ,0xff};
+	FILE *fp;
+	fp = fopen(file, "wb+");
+	if(!fp) {
+		fprintf(stderr, "FAILED: to open plaintext!\n");
+		exit(-1);
+	}
+	fwrite(plaintext, 1, sizeof(plaintext), fp);
+	fclose(fp);
+}
+
+//read data from file
+uint8_t *file_buf(const char *file, long int *size){
+	int fd = open(file, O_RDONLY);
+	struct stat stats;
+	if(fd < 0) {
+		fprintf(stderr, "Error opening file\n");
+		exit(1);
+	}
+  	if(fstat(fd, &stats) < 0) {
+  		fprintf(stderr, "Error opening file\n");
+  		exit(1);
+  	}
+  	uint8_t *mem = (uint8_t *)mmap(NULL, stats.st_size, PROT_READ, MAP_PRIVATE, fd, 0); 
+  	if(mem == MAP_FAILED) {
+  		fprintf(stderr, "mmap failed\n");
+  		exit(1);
+  	}
+  	*size = stats.st_size;
+  	return mem;
+}
+
+
 /*
 Plaintext:  00112233445566778899aabbccddeeff
 Cipher key: 000102030405060708090a0b0c0d0e0f
 Ciphertext: 69c4e0d86a7b0430d8cdb78070b4c55a
 */
+void aes_128_testcase_single()
+{
 	uint8_t plaintext[16] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee ,0xff};
 	uint8_t ciphertext[16] = {0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
 	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
-	long int size = 16;
+	long int size = sizeof(plaintext);
 	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
-	
+
 	printf("Plaintext: \n");
 	for(int i=0; i<size/16; i++) {
 		print_block_hex(plaintext+16*i);
@@ -349,6 +379,85 @@ Ciphertext: 69c4e0d86a7b0430d8cdb78070b4c55a
 	for(int i=0; i<size/16; i++) {
 		print_block_hex(output_gpu+16*i);
 	}
+}
+
+void aes_128_testcase_file()
+{
+	long int size;
+	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+	uint8_t *plaintext = file_buf(file_path, &size);
+	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
+	
+	printf("Plaintext: \n");
+	for(int i=0; i<size/16; i++) {
+		print_block_hex(plaintext+16*i);
+	}
+	
+	encrypt_cuda(plaintext, output_gpu, key, size);
+	printf("Output: \n");
+	for(int i=0; i<size/16; i++) {
+		print_block_hex(output_gpu+16*i);
+	}
+
+	decrypt_cuda(output_gpu, output_gpu, key, size);
+	printf("Output: \n");
+	for(int i=0; i<size/16; i++) {
+		print_block_hex(output_gpu+16*i);
+	}
+}
+
+void aes_128_testcase_1M()
+{
+	long int size;
+	char *file = "myfile1M";
+	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+	uint8_t *plaintext = file_buf(file, &size);
+	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
+	
+	printf("Plaintext first 16 bytes: \n");
+	print_block_hex(plaintext);
+	
+	encrypt_cuda(plaintext, output_gpu, key, size);
+
+	decrypt_cuda(output_gpu, output_gpu, key, size);
+	printf("Output first 16 bytes: \n");
+	print_block_hex(output_gpu);
+}
+
+void aes_128_testcase_128M()
+{
+	long int size;
+	char *file = "myfile128M";
+	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+	uint8_t *plaintext = file_buf(file, &size);
+	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
+	
+	printf("Plaintext first 16 bytes: \n");
+	print_block_hex(plaintext);
+	
+	encrypt_cuda(plaintext, output_gpu, key, size);
+
+	decrypt_cuda(output_gpu, output_gpu, key, size);
+	printf("Output first 16 bytes: \n");
+	print_block_hex(output_gpu);
+}
+
+
+int main()
+{
+	// write_file(file_path);
+	// return 0;
+	/*
+	uint8_t key[16] = {0x7E, 0x24, 0x06, 0x78, 0x17, 0xFA, 0xE0, 0xD7, 0x43, 0xD6, 0xCE, 0x1F, 0x32, 0x53, 0x91, 0x63};
+	uint8_t rseed[16] = {0x00, 0x6C, 0xB6, 0xDB, 0xC0, 0x54, 0x3B, 0x59, 0xDA, 0x48, 0xD9, 0x0B, 0, 0, 0, 0};
+	uint8_t plaintext[33] = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F";
+	long int size = 32;
+	*/
+
+	// aes_128_testcase_single();
+	aes_128_testcase_128M();
+
+
 	/*//Test correctness
 	int sum = 0;
 	for(uint32_t i = 0; i < size; ++i){
