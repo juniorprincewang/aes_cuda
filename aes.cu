@@ -1,5 +1,6 @@
 #include "aes.h"
 
+#define TIMING 
 const char *file_path = "plaintext.txt";
 
 //generate round keys from initial key
@@ -406,20 +407,76 @@ void aes_128_testcase_file()
 	}
 }
 
+static double tvsub(struct timeval start, struct timeval end)
+{
+	return (double)(end.tv_usec - start.tv_usec)/1000000 +
+                        (double)(end.tv_sec - start.tv_sec);
+}
+
 void aes_128_testcase_1M()
 {
+	#ifdef  TIMING
+		struct timeval enc_start, enc_end;
+		struct timeval dec_start, dec_end;
+		struct timeval malloc_start, malloc_end;
+		struct timeval file_start, file_end;
+	#endif
 	long int size;
-	char *file = "myfile1M";
+	char file[] = "myfile1M";
 	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+	#ifdef  TIMING
+		gettimeofday(&file_start, NULL);
+	#endif
 	uint8_t *plaintext = file_buf(file, &size);
-	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
+	#ifdef  TIMING
+		gettimeofday(&file_end, NULL);
+	#endif
+	#ifdef  TIMING
+		double file_time 	= tvsub(file_start, file_end);
+		printf("file read: \t\t%f\n", file_time);
+	#endif
+
+	printf("file size 0x%lx\n", size);
+
+	#ifdef  TIMING
+		gettimeofday(&malloc_start, NULL);
+	#endif
+	// uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
+	uint8_t *output_gpu;
+	cudaMallocHost(&output_gpu, sizeof(uint8_t) * size);
+	#ifdef  TIMING
+		gettimeofday(&malloc_end, NULL);
+	#endif
+	#ifdef  TIMING
+		double malloc_time 	= tvsub(malloc_start, malloc_end);
+		printf("malloc: \t\t%f\n", malloc_time);
+	#endif
 	
 	printf("Plaintext first 16 bytes: \n");
 	print_block_hex(plaintext);
-	
+	#ifdef  TIMING
+		gettimeofday(&enc_start, NULL);
+	#endif
 	encrypt_cuda(plaintext, output_gpu, key, size);
+	#ifdef  TIMING
+		gettimeofday(&enc_end, NULL);
+	#endif
+	#ifdef  TIMING
+		double enc_time 	= tvsub(enc_start, enc_end);
+		printf("encrypt_cuda: \t\t%f\n", enc_time);
+	#endif
 
+	#ifdef  TIMING
+		gettimeofday(&dec_start, NULL);
+	#endif
 	decrypt_cuda(output_gpu, output_gpu, key, size);
+	#ifdef  TIMING
+		gettimeofday(&dec_end, NULL);
+	#endif
+	#ifdef  TIMING
+		double dec_time 	= tvsub(dec_start, dec_end);
+		printf("dec_cuda: \t\t%f\n", dec_time);
+	#endif
 	printf("Output first 16 bytes: \n");
 	print_block_hex(output_gpu);
 }
@@ -427,7 +484,7 @@ void aes_128_testcase_1M()
 void aes_128_testcase_128M()
 {
 	long int size;
-	char *file = "myfile128M";
+	char file[] = "myfile128M";
 	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
 	uint8_t *plaintext = file_buf(file, &size);
 	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
@@ -455,7 +512,20 @@ int main()
 	*/
 
 	// aes_128_testcase_single();
-	aes_128_testcase_128M();
+	#ifdef  TIMING
+		struct timeval total_start, total_end;
+	#endif
+	#ifdef  TIMING
+		gettimeofday(&total_start, NULL);
+	#endif
+	aes_128_testcase_1M();
+	#ifdef  TIMING
+		gettimeofday(&total_end, NULL);
+	#endif
+	#ifdef  TIMING
+		double total_time 	= tvsub(total_start, total_end);
+		printf("total time: \t\t%f\n", total_time);
+	#endif
 
 
 	/*//Test correctness
