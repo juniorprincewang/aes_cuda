@@ -1,7 +1,6 @@
 #include "aes.h"
 
 #define TIMING 
-const char *file_path = "plaintext.txt";
 
 //generate round keys from initial key
 void expand_key(uint8_t *key, uint8_t *rkey){
@@ -258,6 +257,9 @@ void encrypt_cuda(uint8_t *data, uint8_t *out_data, uint8_t *key, uint32_t size)
 	uint8_t rkey[176];
 	uint32_t *ddata;
 	uint32_t *drkey;
+	dim3 threads, blocks;
+	threads=dim3(512, 1);
+    blocks=dim3(numblock / threads.x, 1);
 
 	expand_key(key, rkey);
 	cudaMalloc(&ddata, sizeof(uint8_t) * num_bytes);
@@ -265,8 +267,13 @@ void encrypt_cuda(uint8_t *data, uint8_t *out_data, uint8_t *key, uint32_t size)
 	cudaMemcpy(ddata, (uint32_t *)data, sizeof(uint8_t) * num_bytes, cudaMemcpyHostToDevice);
 	cudaMemcpy(drkey, (uint32_t *)rkey, sizeof(uint8_t) * 176, cudaMemcpyHostToDevice);
 
+	printf("data size 0x%x\n", size);
+	printf("block number is %d\n", numblock);
+	printf("blocks size %d\n", blocks.x);
+	printf("threads size %d\n", threads.x);
 
-	encrypt_one_block<<<(numblock + 31)/32, 32>>>((uint8_t *)ddata, (uint8_t *)drkey, numblock);
+	// encrypt_one_block<<<(numblock + 31)/32, 32>>>((uint8_t *)ddata, (uint8_t *)drkey, numblock);
+	encrypt_one_block<<<blocks, threads>>>((uint8_t *)ddata, (uint8_t *)drkey, numblock);
 	cudaThreadSynchronize();
 
 	cudaMemcpy(out_data, ddata, sizeof(uint8_t) * num_bytes, cudaMemcpyDeviceToHost);
@@ -286,6 +293,9 @@ void decrypt_cuda(uint8_t *data, uint8_t *out_data, uint8_t *key, uint32_t size)
 	uint8_t rkey[176];
 	uint32_t *ddata;
 	uint32_t *drkey;
+	dim3 threads, blocks;
+	threads=dim3(512, 1);
+    blocks=dim3(numblock / threads.x, 1);
 
 	expand_key(key, rkey);
 	cudaMalloc(&ddata, sizeof(uint8_t) * num_bytes);
@@ -294,7 +304,7 @@ void decrypt_cuda(uint8_t *data, uint8_t *out_data, uint8_t *key, uint32_t size)
 	cudaMemcpy(drkey, (uint32_t *)rkey, sizeof(uint8_t) * 176, cudaMemcpyHostToDevice);
 
 
-	decrypt_one_block<<<(numblock + 31)/32, 32>>>((uint8_t *)ddata, (uint8_t *)drkey, numblock);
+	decrypt_one_block<<<blocks, threads>>>((uint8_t *)ddata, (uint8_t *)drkey, numblock);
 	cudaThreadSynchronize();
 
 	cudaMemcpy(out_data, ddata, sizeof(uint8_t) * num_bytes, cudaMemcpyDeviceToHost);
@@ -382,29 +392,31 @@ void aes_128_testcase_single()
 	}
 }
 
-void aes_128_testcase_file()
+void aes_128_testcase_file(const char* filepath)
 {
 	long int size;
 	uint8_t key[16] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
-	uint8_t *plaintext = file_buf(file_path, &size);
+	uint8_t *plaintext = file_buf(filepath, &size);
 	uint8_t *output_gpu = (uint8_t *) malloc(sizeof(uint8_t) * size);
 	
 	printf("Plaintext: \n");
-	for(int i=0; i<size/16; i++) {
+	/*for(int i=0; i<size/16; i++) {
 		print_block_hex(plaintext+16*i);
-	}
-	
-	encrypt_cuda(plaintext, output_gpu, key, size);
-	printf("Output: \n");
-	for(int i=0; i<size/16; i++) {
-		print_block_hex(output_gpu+16*i);
-	}
+	}*/
+	print_block_hex(plaintext);
 
-	decrypt_cuda(output_gpu, output_gpu, key, size);
-	printf("Output: \n");
-	for(int i=0; i<size/16; i++) {
+	encrypt_cuda(plaintext, output_gpu, key, size);
+	printf("Encrypted Output: \n");
+/*	for(int i=0; i<size/16; i++) {
 		print_block_hex(output_gpu+16*i);
-	}
+	}*/
+	print_block_hex(output_gpu);
+	decrypt_cuda(output_gpu, output_gpu, key, size);
+	printf("Decrypted Output: \n");
+/*	for(int i=0; i<size/16; i++) {
+		print_block_hex(output_gpu+16*i);
+	}*/
+	print_block_hex(output_gpu);
 }
 
 static double tvsub(struct timeval start, struct timeval end)
@@ -500,7 +512,7 @@ void aes_128_testcase_128M()
 }
 
 
-int main()
+int main(int argc, char *argv[])
 {
 	// write_file(file_path);
 	// return 0;
@@ -511,6 +523,7 @@ int main()
 	long int size = 32;
 	*/
 
+/*	
 	// aes_128_testcase_single();
 	#ifdef  TIMING
 		struct timeval total_start, total_end;
@@ -525,7 +538,7 @@ int main()
 	#ifdef  TIMING
 		double total_time 	= tvsub(total_start, total_end);
 		printf("total time: \t\t%f\n", total_time);
-	#endif
+	#endif*/
 
 
 	/*//Test correctness
@@ -534,5 +547,13 @@ int main()
 		sum += abs(ciphertext[i] - output_gpu[i]);
 	}
 	printf("Sum = %d  (should be zero if correct)\n", sum);*/
+	const char* path;
+	if (argc != 2) {
+		printf("Invalid argument! Please provide plaintext file.\n");
+		return -1;
+	}
+	path = argv[1];
+	aes_128_testcase_file(path);
+
 	return 0;
 }
